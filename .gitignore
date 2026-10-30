@@ -7,3 +7,6 @@
 # Python cache files
 __pycache__/
 *.pyc
+# Local test cache and source-only restore copies
+.cache/
+restore_points/

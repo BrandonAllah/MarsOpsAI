@@ -6,8 +6,10 @@ import math
 
 from terrain import WORLD_SIZE, BASE, TARGETS, make_world, draw_base
 from mission import Mission, MAX_LEVEL, REWARD
+from movement import move_rover
 
-from ai_copilot import get_mission_advice
+from ai_copilot import get_mission_advice, discovery_briefing
+from discoveries import DISCOVERIES, DiscoveryJournal, interaction_choice
 
 # ======================================
 # MARSOPS AI - ROVER EXPLORER
@@ -47,6 +49,8 @@ title_font = pygame.font.SysFont("Arial", 28, bold=True)
 world, rocks = make_world()
 rover = pygame.Rect(BASE[0] - 25, BASE[1] - 25, 50, 50)
 mission = Mission()
+journal = DiscoveryJournal()
+active_discovery = None
 upgrade_menu = False
 menu_notice = ""
 rover_x, rover_y = float(rover.x), float(rover.y)
@@ -67,6 +71,8 @@ ai_message = (
 )
 
 ai_loading = False
+ai_request_id = 0
+ai_scroll = 0
 
 # Thread-safe communication
 ai_results = queue.Queue()
@@ -117,6 +123,12 @@ def request_ai_advice(
             "API key, and model availability.",
             snapshot
         ))
+
+
+def request_discovery_advice(discovery, more, snapshot):
+    """Generate an explanation in a worker; retain verified facts if it fails."""
+    message = discovery_briefing(discovery, more)
+    ai_results.put(("discovery", message, snapshot))
 
 
 # ======================================
@@ -221,9 +233,13 @@ while running:
         while True:
             result_type, result_text, snapshot = ai_results.get_nowait()
 
-            ai_loading = False
-            if snapshot == (mission.number, mission.collected, mission.completed):
-                ai_message = result_text
+            if snapshot[1] == ai_request_id:
+                ai_loading = False
+                ai_scroll = 0
+                if snapshot[0] == "discovery" or snapshot[2] == (mission.number, mission.collected, mission.completed):
+                    ai_message = result_text
+                else:
+                    ai_message = "Mission status changed. Press H for an updated briefing."
 
     except queue.Empty:
         pass
@@ -237,7 +253,39 @@ while running:
         if event.type == pygame.QUIT:
             running = False
 
+        if event.type == pygame.MOUSEWHEEL and pygame.mouse.get_pos()[0] >= GAME_WIDTH:
+            ai_scroll = max(0, min(480, ai_scroll - event.y * 48))
+
         if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_PAGEUP:
+                ai_scroll = max(0, ai_scroll - 72)
+            elif event.key == pygame.K_PAGEDOWN:
+                ai_scroll = min(480, ai_scroll + 72)
+
+            if event.key == pygame.K_j:
+                journal.toggle()
+                active_discovery = None
+                upgrade_menu = False
+                continue
+            if journal.is_open:
+                if event.key in (pygame.K_LEFT, pygame.K_UP):
+                    journal.move(-1)
+                elif event.key in (pygame.K_RIGHT, pygame.K_DOWN):
+                    journal.move(1)
+                elif event.key == pygame.K_ESCAPE:
+                    journal.is_open = False
+                continue
+            if active_discovery is not None:
+                if event.key in (pygame.K_ESCAPE, pygame.K_e):
+                    active_discovery = None
+                elif event.key == pygame.K_f:
+                    ai_request_id += 1
+                    ai_loading = True
+                    ai_message = f"Contacting Gemma 4 about {active_discovery.name}..."
+                    threading.Thread(target=request_discovery_advice,
+                                     args=(active_discovery, True, ("discovery", ai_request_id)),
+                                     daemon=True).start()
+                continue
 
             if event.key == pygame.K_u:
                 if upgrade_menu:
@@ -272,11 +320,23 @@ while running:
                 ai_message = "Mission restarted at base. No credits awarded."
 
             if event.key == pygame.K_e and not upgrade_menu:
-                found = mission.collect(rover)
-                if found and not mission.samples:
-                    ai_message = "All samples secured. Return to base to complete the mission."
+                choice, discovery = interaction_choice(rover, mission.samples, mission.scanner_range)
+                if choice == "sample":
+                    mission.collect(rover)
+                    if not mission.samples:
+                        ai_message = "All samples secured. Return to base to complete the mission."
+                elif choice == "discovery":
+                    active_discovery = discovery
+                    journal.investigate(discovery)
+                    ai_request_id += 1
+                    ai_loading = True
+                    ai_message = f"Contacting Gemma 4 about {discovery.name}..."
+                    threading.Thread(target=request_discovery_advice,
+                                     args=(discovery, False, ("discovery", ai_request_id)),
+                                     daemon=True).start()
 
             if event.key == pygame.K_h and not ai_loading:
+                ai_request_id += 1
                 ai_loading = True
                 ai_message = "Contacting Gemma 4...\n\nAnalyzing mission telemetry."
                 worker = threading.Thread(
@@ -284,7 +344,7 @@ while running:
                     args=(mission.battery, mission.collected, rover.centerx, rover.centery,
                           [sample.center for sample in mission.samples], mission.objective,
                           mission.capacity, mission.credits, mission.at_base(rover.center),
-                          (mission.number, mission.collected, mission.completed)),
+                          ("mission", ai_request_id, (mission.number, mission.collected, mission.completed))),
                     daemon=True
                 )
                 worker.start()
@@ -298,7 +358,7 @@ while running:
     dx = 0.0
     dy = 0.0
 
-    if mission.battery > 0 and not upgrade_menu and not mission.completed:
+    if mission.battery > 0 and not upgrade_menu and not journal.is_open and active_discovery is None and not mission.completed:
 
         if keys[pygame.K_w]:
             dy -= 1
@@ -312,48 +372,8 @@ while running:
         if keys[pygame.K_d]:
             dx += 1
 
-    # Normalize diagonal movement
-    if dx != 0 or dy != 0:
-        length = (dx ** 2 + dy ** 2) ** 0.5
-        dx /= length
-        dy /= length
-
-    move_x = dx * mission.speed * dt
-    move_y = dy * mission.speed * dt
-
-    old_x = rover.x
-    old_y = rover.y
-
-    # Horizontal movement
-    rover_x += move_x
-    rover.x = round(rover_x)
-
-    if any(rover.colliderect(rock) for rock in rocks):
-        rover.x = old_x
-        rover_x = float(old_x)
-
-    # Vertical movement
-    rover_y += move_y
-    rover.y = round(rover_y)
-
-    if any(rover.colliderect(rock) for rock in rocks):
-        rover.y = old_y
-        rover_y = float(old_y)
-
-    # Stay inside the playable area
-    game_bounds = pygame.Rect(
-        0, 0, *WORLD_SIZE
-    )
-
-    rover.clamp_ip(game_bounds)
-
-    rover_x = float(rover.x)
-    rover_y = float(rover.y)
-
-    # Battery drains only when position changes
-    moved = (
-        rover.x != old_x or
-        rover.y != old_y
+    rover_x, rover_y, moved = move_rover(
+        rover, rover_x, rover_y, dx, dy, mission.speed, dt, rocks, WORLD_SIZE
     )
 
     if mission.update(rover.center, dt, moved):
@@ -369,6 +389,32 @@ while running:
     screen.set_clip(pygame.Rect(0, 0, GAME_WIDTH, HEIGHT))
     screen.blit(world, (0, 0), pygame.Rect(*offset, GAME_WIDTH, HEIGHT))
     draw_base(screen, offset)
+
+    # Small procedural landmarks and a pulsing scan ring; no per-frame terrain generation.
+    pulse = int(3 * (1 + math.sin(pygame.time.get_ticks() / 450)))
+    for discovery in DISCOVERIES:
+        x, y = discovery.position[0] - offset[0], discovery.position[1] - offset[1]
+        if not (-100 < x < GAME_WIDTH + 100 and -100 < y < HEIGHT + 100):
+            continue
+        if discovery.id == "jezero":
+            pygame.draw.ellipse(screen, (90, 58, 48), (x-48, y-25, 96, 50))
+            pygame.draw.ellipse(screen, (211, 148, 105), (x-46, y-30, 92, 48), 5)
+            for step in range(3):
+                pygame.draw.arc(screen, (200, 125, 85), (x-26+step*8, y-18+step*4, 48, 25), 0.2, 2.8, 3)
+        elif discovery.id == "cheyava":
+            pygame.draw.ellipse(screen, (76, 45, 40), (x-37, y-18, 78, 43))
+            pygame.draw.ellipse(screen, (174, 100, 76), (x-37, y-24, 74, 42))
+            for dx, dy in ((-22, -8), (-6, -14), (11, -6), (22, 3), (-13, 6), (4, 8)):
+                pygame.draw.circle(screen, (77, 63, 58), (x+dx, y+dy), 5)
+                pygame.draw.circle(screen, (218, 191, 152), (x+dx, y+dy), 3)
+        else:
+            pygame.draw.ellipse(screen, (117, 81, 71), (x-43, y-22, 86, 44))
+            for dx, dy in ((-28, -5), (-15, 7), (-8, -12), (3, 2), (15, -8), (27, 5), (10, 12)):
+                pygame.draw.circle(screen, (64, 81, 94), (x+dx, y+dy), 5)
+                pygame.draw.circle(screen, (126, 146, 150), (x+dx-1, y+dy-1), 2)
+        color = GREEN if journal.is_found(discovery) else SAMPLE_BLUE
+        pygame.draw.circle(screen, color, (x, y), 55 + pulse, 1)
+        pygame.draw.circle(screen, color, (x, y-58), 5, 0 if journal.is_found(discovery) else 2)
 
     for sample in mission.samples:
         x, y = sample.centerx - offset[0], sample.centery - offset[1]
@@ -411,6 +457,18 @@ while running:
     for index, surface in enumerate(hud_surfaces):
         screen.blit(surface, (20, 18 + index * 26))
 
+    choice, nearby_discovery = interaction_choice(rover, mission.samples, mission.scanner_range)
+    if not upgrade_menu and not journal.is_open and active_discovery is None:
+        if choice == "sample":
+            hint = "Press E to collect sample (samples first)"
+        elif choice == "discovery":
+            hint = "Press E to investigate: " + nearby_discovery.name
+        else:
+            hint = "J: Discovery journal"
+        hint_surface = small_font.render(hint, False, SAMPLE_BLUE)
+        pygame.draw.rect(screen, (28, 34, 37), (10, HEIGHT-38, hint_surface.get_width()+20, 30), border_radius=5)
+        screen.blit(hint_surface, (20, HEIGHT-32))
+
     # Overview uses the same cached terrain; markers remain in world coordinates.
     map_x, map_y = GAME_WIDTH - 220, HEIGHT - 170
     pygame.draw.rect(screen, (28, 34, 37), (map_x-5, map_y-25, 210, 180), border_radius=5)
@@ -422,6 +480,9 @@ while running:
     pygame.draw.rect(screen, (225, 217, 189), (*map_point(BASE), 5, 5))
     for sample in mission.samples:
         pygame.draw.circle(screen, SAMPLE_BLUE, map_point(sample.center), 4)
+    for discovery in DISCOVERIES:
+        color = GREEN if journal.is_found(discovery) else YELLOW
+        pygame.draw.circle(screen, color, map_point(discovery.position), 3, 0 if journal.is_found(discovery) else 1)
     pygame.draw.circle(screen, (255, 242, 150), map_point(rover.center), 4)
     pygame.draw.rect(screen, (225, 205, 181), (map_x, map_y, 200, 150), 1)
 
@@ -501,19 +562,22 @@ while running:
     )
 
     screen.blit(status, (panel_x, 255))
+    screen.blit(small_font.render("PgUp / PgDn: scroll", False, PANEL_GRAY), (panel_x + 125, 255))
 
-    # AI briefing text
+    # Clip the scrollable briefing to its panel so long AI or fallback text remains readable.
+    screen.set_clip(pygame.Rect(panel_x, 292, content_width, HEIGHT - 357))
     draw_wrapped_text(
         screen,
         ai_message,
         panel_x,
-        295,
+        295 - ai_scroll,
         content_width,
         small_font,
         WHITE,
         line_height=24,
         bottom_limit=HEIGHT - 65
     )
+    screen.set_clip(None)
 
     # Bottom help text
     pygame.draw.line(
@@ -525,7 +589,7 @@ while running:
     )
 
     screen.blit(small_font.render("WASD: Drive  |  E: Collect", False, SAMPLE_BLUE), (panel_x, HEIGHT - 50))
-    screen.blit(small_font.render("U: Upgrades  |  H: AI", False, SAMPLE_BLUE), (panel_x, HEIGHT - 28))
+    screen.blit(small_font.render("U: Upgrade  H: AI  J: Journal", False, SAMPLE_BLUE), (panel_x, HEIGHT - 28))
 
     if upgrade_menu:
         box = pygame.Rect(220, 120, 460, 350)
@@ -550,6 +614,36 @@ while running:
         screen.blit(small_font.render(menu_notice, False, YELLOW), (box.x + 22, box.bottom - 64))
         hint = "N: new mission   U: close" if mission.completed else "U: close  |  Complete missions to earn credits"
         screen.blit(small_font.render(hint, False, SAMPLE_BLUE), (box.x + 22, box.bottom - 35))
+    if journal.is_open or active_discovery is not None:
+        item = journal.current if journal.is_open else active_discovery
+        box = pygame.Rect(100, 105, 700, 410)
+        pygame.draw.rect(screen, (24, 30, 42), box, border_radius=10)
+        pygame.draw.rect(screen, SAMPLE_BLUE, box, 2, border_radius=10)
+        heading = "DISCOVERY JOURNAL" if journal.is_open else "DISCOVERY INVESTIGATED"
+        screen.blit(title_font.render(heading, False, SAMPLE_BLUE), (box.x+22, box.y+16))
+        screen.blit(small_font.render(f"Found: {len(journal.found)}/{len(DISCOVERIES)}", False, GREEN), (box.x+22, box.y+52))
+        if journal.is_open:
+            y = box.y + 79
+            for index, entry in enumerate(DISCOVERIES):
+                status = "FOUND" if journal.is_found(entry) else "UNDISCOVERED"
+                prefix = "> " if index == journal.selected else "  "
+                screen.blit(small_font.render(f"{prefix}{entry.name}  [{status}]", False, YELLOW if index == journal.selected else PANEL_GRAY), (box.x+22, y))
+                y += 22
+            y += 7
+        else:
+            y = box.y + 86
+        screen.blit(font.render(item.name, False, WHITE), (box.x+22, y))
+        y += 31
+        y = draw_wrapped_text(screen, item.description + " " + item.significance,
+                              box.x+22, y, box.width-44, small_font, WHITE,
+                              line_height=21, bottom_limit=box.bottom-82)
+        y += 5
+        draw_wrapped_text(screen, "NASA source: " + item.source_url,
+                          box.x+22, y, box.width-44, small_font, PANEL_GRAY,
+                          line_height=20, bottom_limit=box.bottom-43)
+        hint = "Arrow keys: select  |  J / Esc: close" if journal.is_open else "F: ask for more  |  E / Esc: close  |  J: journal"
+        screen.blit(small_font.render(hint, False, SAMPLE_BLUE), (box.x+22, box.bottom-30))
+
     pygame.display.flip()
 
 pygame.quit()
