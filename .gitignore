@@ -20,3 +20,7 @@ __MACOSX/
 *.zip
 *.log
 *.bak
+# Generated files and local progress
+.cache/
+restore_points/
+marsops_save.json
