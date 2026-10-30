@@ -11,6 +11,7 @@ class Discovery:
     significance: str
     source_url: str
     position: tuple
+    location: str = "Mars"
 
 
 DISCOVERIES = (
@@ -19,21 +20,35 @@ DISCOVERIES = (
         "Perseverance explored Jezero Crater, where sediments were deposited in a delta as a river entered an ancient lake.",
         "The deposits help scientists reconstruct Mars' history of water.",
         "https://science.nasa.gov/mission/mars-2020-perseverance/science-highlights/",
-        (700, 660),
+        (700, 660), "Jezero Crater",
     ),
     Discovery(
         "cheyava", "Cheyava Falls",
         "Perseverance studied this rock and its light-colored, dark-rimmed leopard spots. Its Sapphire Canyon sample contains potential biosignatures.",
         "These clues could have a biological origin, but other explanations remain possible. They do not confirm life; further study is needed.",
         "https://science.nasa.gov/mars/the-mars-report/2025-september-special-edition/",
-        (1500, 455),
+        (1500, 455), "Jezero Crater",
     ),
     Discovery(
         "blueberries", "Martian Blueberries",
         "Opportunity examined small spherical concretions nicknamed blueberries and identified the iron-bearing mineral hematite.",
         "Their hematite-rich grains provide evidence of past water-related processes at Meridiani Planum.",
         "https://science.nasa.gov/resource/discovery-served-up-in-a-bowl/",
-        (1500, 1225),
+        (1500, 1225), "Meridiani Planum",
+    ),
+    Discovery(
+        "sheepbed", "Sheepbed Mudstone",
+        "Curiosity studied the Sheepbed mudstone in Yellowknife Bay, Gale Crater, including a rock called John Klein.",
+        "Scientists interpret the mudstone as an ancient lake deposit; its chemistry indicates a potentially habitable environment, not confirmed life.",
+        "https://science.nasa.gov/resource/view-into-john-klein-drill-hole-in-martian-mudstone/",
+        (1000, 800), "Yellowknife Bay, Gale Crater",
+    ),
+    Discovery(
+        "mountsharp", "Mount Sharp Sulfates",
+        "Curiosity explored a sulfate-bearing layer on Mount Sharp in Gale Crater.",
+        "The mineral-rich layers help scientists study how the Martian environment changed over time.",
+        "https://science.nasa.gov/resource/mount-sharp-comes-in-sharply/",
+        (1200, 1000), "Mount Sharp, Gale Crater",
     ),
 )
 
@@ -64,7 +79,7 @@ class DiscoveryJournal:
 
     def investigate(self, discovery):
         self.found.add(discovery.id)
-        self.selected = self.discoveries.index(discovery)
+        self.selected = next(i for i, item in enumerate(self.discoveries) if item.id == discovery.id)
 
     def toggle(self):
         self.is_open = not self.is_open

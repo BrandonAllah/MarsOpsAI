@@ -1,24 +1,42 @@
-# MarsOps AI
+# MarsOps AI v0.6
 
-Run the game from this folder with `.venv/bin/python main.py` (or use a Python environment with Pygame, python-dotenv, and google-genai installed).
+A Pygame Mars rover game with procedurally generated expeditions and a Gemma 4 copilot. The map combines discoveries from different real places for education; it is not a geographically accurate reconstruction. The generated collectible rocks are fictional game samples, not real discoveries.
 
-- Drive with **WASD** and press **E** near a sample to collect it.
-- Collect all three samples, then return to the research base to complete the mission and earn 200 research credits. The base recharges the rover automatically.
-- At the base, press **U** to open or close upgrades. Press **1**, **2**, or **3** to upgrade battery capacity, speed, or sample collection range. Each has three levels; costs rise from 100 to 150 and 200 credits.
-- After completing a mission, press **N** to begin another. If the battery runs out away from the base, press **R** to restart without a reward.
-- Press **H** for a Gemma 4 briefing. The rover's position and the minimap use world coordinates.
+## Install and run
 
-Credits and upgrades last for the current game session; they are not saved after the game closes. Terrain and sample locations are deterministic and repeat between missions.
+From the existing project folder, use the existing environment:
 
-Run the offline gameplay tests with `.venv/bin/python -m unittest -v test_mission`. The existing `test_ai.py` and `test_copilot.py` are live API scripts and require a working Gemma connection.
+```bash
+cd /Users/brandonallah/Projects/MarsOpsAI
+.venv/bin/python main.py
+```
 
-## NASA Discovery Update
+To create your own environment in this folder, install Python 3, then run `python3 -m venv .venv` and `.venv/bin/pip install pygame python-dotenv google-genai`. Gemma needs the existing `GEMINI_API_KEY` in `.env`; never share the file. The game and its local NASA facts work when the API is unavailable.
 
-The map includes three landmarks inspired by NASA discoveries: Jezero Crater, Cheyava Falls, and Martian Blueberries. They are placed together for educational gameplay; the map is not a geographically accurate reconstruction of Mars. Uninvestigated landmarks have blue scan rings and outlined yellow minimap markers. Investigated landmarks turn green.
+## Controls
 
-- Drive near a landmark and press **E** to investigate. If a collectible sample is also in reach, **E** collects the sample first; press **E** again to investigate.
-- The discovery panel shows NASA-sourced facts and the source URL. Press **F** while it is open for another Gemma explanation, or **E/Esc** to close it. Gemma runs in the background; if unavailable, the copilot displays the local verified facts. Use Page Up/Page Down or the mouse wheel over the copilot to scroll longer responses.
-- Press **J** to open the discovery journal, use the **arrow keys** to select an entry, and press **J** or **Esc** to close it. Journal progress is retained during repeat missions but resets when the game closes.
-- AI-generated explanations can be mistaken; the journal's NASA sources are the reference. In particular, potential biosignatures at Cheyava Falls are not confirmed evidence of life.
+- **Enter** starts or resumes from the title screen; **WASD** drives, with acceleration and steering in the direction of travel.
+- **F** scans nearby samples and sites. The scanner uses battery and has a cooldown; detected targets appear on the minimap. Scan feedback identifies simulated rock types, rarity, and research values.
+- **E** collects a nearby sample or investigates a landmark. If both overlap, E collects the sample first; press E again to investigate. In a discovery panel, **F** asks Gemma for more and **E/Esc** closes it.
+- **J** opens the discovery journal. Use arrow keys to select and **J/Esc** to close. NASA source links and real locations are shown in the journal. AI explanations may be mistaken; refer to the NASA source.
+- **T** sets a waypoint to the nearest scanned sample, or to base when none is scanned. Its minimap line indicates bearing only and is not a validated safe route. **H** requests a mission briefing. Use **Page Up/Page Down** or the mouse wheel over the copilot to scroll responses.
+- **U** opens upgrades at base. **1–5** buy battery, speed, scanner range, scanner efficiency, or repair speed upgrades. **N** launches the next expedition after completion; **R** restarts the current expedition if the battery is depleted.
+- **I** shows statistics and achievements. **Esc** pauses. **V** toggles weather and dust particles; **[ / ]** shortens or lengthens the day cycle in 60-second steps (60–900 seconds).
 
-Run the offline tests with `.venv/bin/python -m unittest -v test_mission test_discoveries`.
+## Missions and systems
+
+Mission N requires `3 + 2 × (N - 1)` samples. Each mission uses a reproducible seed (`4026 + N - 1`), a larger chunk-rendered map, and new target placements. Explore to reveal the map; scanning reveals targets on the minimap. The base automatically recharges, repairs and unloads cargo for research credits. Return with all samples to earn the mission reward; returning earlier is useful for recharging and unloading. Optional scanning and landmark investigations pay extra when their data reaches base.
+
+Dunes gradually wear wheels, collisions damage the rover, and dust storms reduce speed and visibility while gradually affecting scientific equipment. Damage limits performance; the base repairs it. Night lowers visibility and charging speed; headlights activate automatically. Visual particles can be disabled without removing weather's gameplay effects.
+
+Progress, upgrades, cargo, discovered sites, map exploration, statistics and achievements save to `marsops_save.json` in this folder approximately every 20 seconds and on exit. The file contains no credentials and is ignored by Git. A missing or invalid save starts a new game. The save is written through an atomic replacement. Keep a copy of this file if you want a backup of your progress.
+
+## Tests
+
+Run the offline tests:
+
+```bash
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m unittest -v test_mission test_discoveries test_expedition test_game_loop
+```
+
+The existing `test_ai.py` and `test_copilot.py` contact the live Gemma API, so they require network access, a configured key, and model availability.

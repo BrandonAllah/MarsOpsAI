@@ -27,7 +27,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(len(journal.found), 1)
         self.assertTrue(journal.is_found(DISCOVERIES[1]))
         self.assertFalse(journal.is_found(DISCOVERIES[0]))
-        journal.move(2)
+        journal.move(len(DISCOVERIES) - 1)
         self.assertEqual(journal.current, DISCOVERIES[0])
         journal.toggle()
         self.assertFalse(journal.is_open)
@@ -57,7 +57,8 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_ai_prompt_uses_verified_facts_and_uncertainty(self):
         import ai_copilot
-        with patch.object(ai_copilot.client.models, 'generate_content') as generate:
+        with patch.object(ai_copilot, 'client') as fake_client:
+            generate = fake_client.models.generate_content
             generate.return_value.text = 'Potential evidence needs further study.'
             result = ai_copilot.get_discovery_explanation(DISCOVERIES[1], more=True)
         prompt = generate.call_args.kwargs['contents']

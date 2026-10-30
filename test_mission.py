@@ -60,7 +60,8 @@ class MissionTests(unittest.TestCase):
 
     def test_copilot_receives_current_objective(self):
         import ai_copilot
-        with patch.object(ai_copilot.client.models, 'generate_content') as generate:
+        with patch.object(ai_copilot, 'client') as fake_client:
+            generate = fake_client.models.generate_content
             generate.return_value.text = 'Return to base.'
             answer = ai_copilot.get_mission_advice(75, 3, 1900, 1350, [],
                                                    'Return to Base', 125, 200, False)

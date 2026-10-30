@@ -10,3 +10,4 @@ __pycache__/
 # Local test cache and source-only restore copies
 .cache/
 restore_points/
+marsops_save.json
