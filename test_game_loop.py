@@ -82,6 +82,7 @@ def step():
     if n == 4: post(pygame.K_DOWN); held.add(pygame.K_DOWN)
     if n == 7:
         assert s['scroll_states']['ai'].offset > 30
+        s['journal'].investigate(s['expedition'].discoveries[0])
         held.clear(); saved_ai[0] = s['scroll_states']['ai'].offset; post(pygame.K_j)
     if n == 9:
         assert s['journal'].is_open
@@ -101,6 +102,35 @@ def step():
     if n == 36:
         held.clear()
         assert s['rover'].centerx > state_at_start[0]
+        pygame.event.post(pygame.event.Event(pygame.QUIT))
+    flip()
+pygame.display.flip = step
+runpy.run_path('main.py', run_name='__main__')
+'''
+        environment = dict(os.environ, SDL_VIDEODRIVER='dummy', SDL_AUDIODRIVER='dummy', PYTHONPYCACHEPREFIX='./.cache')
+        result = subprocess.run([sys.executable, '-c', script], cwd=os.path.dirname(__file__), env=environment,
+                                capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_offline_status_and_recovery(self):
+        script = r'''
+import inspect, runpy, pygame, systems, ai_copilot
+systems.load_progress = lambda: None
+systems.save_progress = lambda *args: True
+frames = [0]; flip = pygame.display.flip
+def step():
+    frames[0] += 1
+    n = frames[0]; state = inspect.currentframe().f_back.f_globals
+    if n == 1: pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
+    if n == 3:
+        state['ai_request_id'] = 1; state['ai_loading'] = True
+        state['ai_results'].put(('discovery', ai_copilot.CopilotResponse('offline', offline=True), ('discovery', 1, 'jezero')))
+    if n == 5:
+        assert state['ai_failed'] and not state['ai_loading']
+        state['ai_request_id'] = 2; state['ai_loading'] = True
+        state['ai_results'].put(('discovery', ai_copilot.CopilotResponse('success'), ('discovery', 2, 'jezero')))
+    if n == 7:
+        assert not state['ai_failed'] and not state['ai_loading']
         pygame.event.post(pygame.event.Event(pygame.QUIT))
     flip()
 pygame.display.flip = step

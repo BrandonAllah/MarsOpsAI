@@ -1,13 +1,22 @@
-# Keep API keys private
+# Secrets
 .env
+.env.*
+!.env.example
 
-# Python virtual environment
+# Python virtual environments
 .venv/
+venv/
 
-# Python cache files
+# Python generated files
 __pycache__/
-*.pyc
-# Local test cache and source-only restore copies
-.cache/
-restore_points/
-marsops_save.json
+*.py[cod]
+.pytest_cache/
+
+# macOS
+.DS_Store
+__MACOSX/
+
+# Local data and backups
+*.zip
+*.log
+*.bak

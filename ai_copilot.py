@@ -13,7 +13,7 @@ from google.genai import types
 load_dotenv()
 
 MODEL_NAME = "gemma-4-26b-a4b-it"
-API_TIMEOUT_MS = 15000
+API_TIMEOUT_MS = 90000
 
 api_key = os.getenv("GEMINI_API_KEY")
 
@@ -25,10 +25,37 @@ if api_key:
         http_options=types.HttpOptions(
             timeout=API_TIMEOUT_MS,
             retry_options=types.HttpRetryOptions(
-                attempts=1
+                attempts=2,
+                initial_delay=1,
+                max_delay=2,
+                http_status_codes=[500, 502, 503, 504]
             )
         )
     )
+
+
+class CopilotResponse(str):
+    """String-compatible response carrying its online/offline state to the UI."""
+    def __new__(cls, text, offline=False):
+        result = super().__new__(cls, text)
+        result.offline = offline
+        return result
+
+
+def offline_reason(error):
+    """Return a safe, user-facing summary without request or credential details."""
+    code = getattr(error, "code", None)
+    if code == 504 or isinstance(error, TimeoutError):
+        return "The AI service timed out. Try again shortly."
+    if code in (500, 502, 503):
+        return "The AI service is temporarily unavailable. Try again shortly."
+    if code == 429:
+        return "The AI service is rate-limited. Wait before trying again."
+    if code in (401, 403):
+        return "The AI service rejected the request. Check API access."
+    if client is None:
+        return "No API key is configured."
+    return "The AI service could not be reached. Try again shortly."
 
 
 # ======================================
@@ -172,13 +199,14 @@ IMPORTANT:
                 "the remaining samples."
             )
 
-        return (
+        return CopilotResponse(
             "MISSION CONTROL - OFFLINE MODE\n\n"
             f"Battery: {battery:.1f}/{battery_capacity}\n"
             f"Samples: {samples_collected}/{required_samples}\n"
             f"Objective: {objective}\n\n"
             f"Recommendation: {next_action}\n\n"
-            "Gemma 4 is temporarily unavailable."
+            "Gemma 4 is temporarily unavailable. " + offline_reason(error),
+            offline=True
         )
 
 
@@ -264,7 +292,7 @@ def discovery_briefing(
             more
         )
 
-        return (
+        return CopilotResponse(
             "AI SCIENCE BRIEFING\n"
             f"{discovery.name}\n\n"
             f"{explanation}"
@@ -277,7 +305,7 @@ def discovery_briefing(
             error
         )
 
-        return (
+        return CopilotResponse(
             "NASA DISCOVERY INFORMATION\n"
             f"{discovery.name}\n\n"
             f"{discovery.description}\n\n"
@@ -286,5 +314,6 @@ def discovery_briefing(
             f"Source: {discovery.source_url}\n\n"
             "Gemma 4 is temporarily unavailable. "
             "Verified discovery information "
-            "is shown instead."
+            "is shown instead. " + offline_reason(error),
+            offline=True
         )

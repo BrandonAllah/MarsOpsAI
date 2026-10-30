@@ -12,6 +12,12 @@ class Discovery:
     source_url: str
     position: tuple
     location: str = "Mars"
+    image_file: str = ""
+    image_url: str = ""
+    image_source_url: str = ""
+    image_credit: str = ""
+    image_caption: str = ""
+    image_mission: str = ""
 
 
 DISCOVERIES = (
@@ -21,6 +27,10 @@ DISCOVERIES = (
         "The deposits help scientists reconstruct Mars' history of water.",
         "https://science.nasa.gov/mission/mars-2020-perseverance/science-highlights/",
         (700, 660), "Jezero Crater",
+        "jezero.jpg", "https://assets.science.nasa.gov/assets/science/psd/photojournal/pia/pia24/pia24683/PIA24683.jpg",
+        "https://science.nasa.gov/photojournal/mars-delta-scarp-from-more-than-a-mile-away/",
+        "NASA/JPL-Caltech/LANL/CNES/CNRS/ASU/MSSS",
+        "Perseverance's five-image mosaic of Jezero Crater's Delta Scarp, captured in 2021.", "Mars 2020 / Perseverance",
     ),
     Discovery(
         "cheyava", "Cheyava Falls",
@@ -28,6 +38,10 @@ DISCOVERIES = (
         "These clues could have a biological origin, but other explanations remain possible. They do not confirm life; further study is needed.",
         "https://science.nasa.gov/mars/the-mars-report/2025-september-special-edition/",
         (1500, 455), "Jezero Crater",
+        "cheyava.jpg", "https://assets.science.nasa.gov/assets/science/psd/photojournal/pia/pia26/pia26368/jpeg/PIA26368.jpg",
+        "https://science.nasa.gov/photojournal/perseverance-finds-a-rock-with-leopard-spots/",
+        "NASA/JPL-Caltech/MSSS",
+        "Perseverance's WATSON camera imaged the Cheyava Falls rock and its leopard spots in 2024.", "Mars 2020 / Perseverance",
     ),
     Discovery(
         "blueberries", "Martian Blueberries",
@@ -35,6 +49,10 @@ DISCOVERIES = (
         "Their hematite-rich grains provide evidence of past water-related processes at Meridiani Planum.",
         "https://science.nasa.gov/resource/discovery-served-up-in-a-bowl/",
         (1500, 1225), "Meridiani Planum",
+        "blueberries.jpg", "https://assets.science.nasa.gov/assets/science/psd/photojournal/pia/pia05/pia05634/PIA05634.jpg",
+        "https://science.nasa.gov/photojournal/discovery-served-up-in-a-bowl/",
+        "NASA/JPL/Cornell",
+        "Opportunity's approximate true-color view of the blueberry-rich Berry Bowl rock in Eagle Crater.", "Mars Exploration Rovers / Opportunity",
     ),
     Discovery(
         "sheepbed", "Sheepbed Mudstone",
@@ -42,6 +60,10 @@ DISCOVERIES = (
         "Scientists interpret the mudstone as an ancient lake deposit; its chemistry indicates a potentially habitable environment, not confirmed life.",
         "https://science.nasa.gov/resource/view-into-john-klein-drill-hole-in-martian-mudstone/",
         (1000, 800), "Yellowknife Bay, Gale Crater",
+        "sheepbed.jpg", "https://assets.science.nasa.gov/assets/science/psd/photojournal/pia/pia17/pia17594/PIA17594.jpg",
+        "https://science.nasa.gov/photojournal/view-into-john-klein-drill-hole-in-martian-mudstone/",
+        "NASA/JPL-Caltech/MSSS",
+        "Curiosity's close-up of the John Klein drill hole in the Sheepbed mudstone, photographed in 2013.", "Mars Science Laboratory / Curiosity",
     ),
     Discovery(
         "mountsharp", "Mount Sharp Sulfates",
@@ -49,6 +71,10 @@ DISCOVERIES = (
         "The mineral-rich layers help scientists study how the Martian environment changed over time.",
         "https://science.nasa.gov/resource/mount-sharp-comes-in-sharply/",
         (1200, 1000), "Mount Sharp, Gale Crater",
+        "mountsharp.jpg", "https://assets.science.nasa.gov/assets/science/psd/photojournal/pia/pia25/pia25367/PIA25367.jpg",
+        "https://science.nasa.gov/photojournal/curiositys-view-of-sulfate-bearing-region-and-streambed-rocks/",
+        "NASA/JPL-Caltech/MSSS",
+        "Curiosity's 2022 mosaic shows a sulfate-bearing region ahead on Mount Sharp and dark streambed rocks.", "Mars Science Laboratory / Curiosity",
     ),
 )
 

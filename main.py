@@ -3,6 +3,7 @@ import pygame
 import threading
 import queue
 import math
+import webbrowser
 
 from terrain import BASE, draw_base
 from expedition import ExpeditionMap, ROCK_TYPES, CELL
@@ -15,6 +16,7 @@ from ui_navigation import ScrollState, focused_panel, driving_allowed, draw_scro
 
 from ai_copilot import get_mission_advice, discovery_briefing
 from discoveries import DISCOVERIES, DiscoveryJournal, interaction_choice
+from gallery import DiscoveryImageCache, gallery_blocks, journal_is_unlocked, draw_gallery
 
 # ======================================
 # MARSOPS AI - ROVER EXPLORER
@@ -71,6 +73,9 @@ waypoint = None
 scan_message = "F: scan for nearby samples"
 rover = pygame.Rect(BASE[0] - 25, BASE[1] - 25, 50, 50)
 journal = DiscoveryJournal()
+image_cache = DiscoveryImageCache()
+discovery_explanations = {}
+discovery_loading_id = None
 active_discovery = None
 upgrade_menu = False
 menu_notice = ""
@@ -101,6 +106,7 @@ ai_message = (
 )
 
 ai_loading = False
+ai_failed = False
 ai_request_id = 0
 scroll_states = {name: ScrollState() for name in ("ai", "journal", "discovery", "upgrades", "stats", "start", "pause")}
 last_ai_message = ai_message
@@ -164,6 +170,23 @@ def request_discovery_advice(discovery, more, snapshot):
     ai_results.put(("discovery", message, snapshot))
 
 
+def ask_about_discovery(discovery, more=False):
+    """Start an asynchronous request and associate its result with the site."""
+    global ai_request_id, ai_loading, ai_message, discovery_loading_id
+    ai_request_id += 1
+    ai_loading = True
+    discovery_loading_id = discovery.id
+    ai_message = f"Contacting Gemma 4 about {discovery.name}...\n\nA response can take over a minute."
+    threading.Thread(target=request_discovery_advice,
+                     args=(discovery, more, ("discovery", ai_request_id, discovery.id)),
+                     daemon=True).start()
+
+
+def open_discovery_source(discovery):
+    # A player's O key explicitly opens the official image source in their browser.
+    threading.Thread(target=webbrowser.open, args=(discovery.image_source_url,), daemon=True).start()
+
+
 def current_panel():
     return focused_panel(started, paused, stats_menu, journal.is_open,
                          active_discovery is not None, upgrade_menu)
@@ -186,6 +209,10 @@ while running:
 
             if snapshot[1] == ai_request_id:
                 ai_loading = False
+                ai_failed = result_type == "error" or getattr(result_text, "offline", False)
+                if snapshot[0] == "discovery":
+                    discovery_explanations[snapshot[2]] = result_text
+                    discovery_loading_id = None
                 scroll_states["ai"].reset()
                 if snapshot[0] == "discovery" or snapshot[2] == (mission.number, mission.collected, mission.completed):
                     ai_message = result_text
@@ -258,17 +285,18 @@ while running:
                     scroll_states["journal"].reset()
                 elif event.key == pygame.K_ESCAPE:
                     journal.is_open = False
+                elif event.key == pygame.K_f and journal_is_unlocked(journal, journal.current):
+                    ask_about_discovery(journal.current, more=True)
+                elif event.key == pygame.K_o and journal_is_unlocked(journal, journal.current):
+                    open_discovery_source(journal.current)
                 continue
             if active_discovery is not None:
                 if event.key in (pygame.K_ESCAPE, pygame.K_e):
                     active_discovery = None
                 elif event.key == pygame.K_f:
-                    ai_request_id += 1
-                    ai_loading = True
-                    ai_message = f"Contacting Gemma 4 about {active_discovery.name}..."
-                    threading.Thread(target=request_discovery_advice,
-                                     args=(active_discovery, True, ("discovery", ai_request_id)),
-                                     daemon=True).start()
+                    ask_about_discovery(active_discovery, more=True)
+                elif event.key == pygame.K_o:
+                    open_discovery_source(active_discovery)
                 continue
 
             if event.key == pygame.K_ESCAPE and upgrade_menu:
@@ -333,12 +361,7 @@ while running:
                     scroll_states["discovery"].reset()
                     journal.investigate(discovery)
                     mission.optional_site_done = True
-                    ai_request_id += 1
-                    ai_loading = True
-                    ai_message = f"Contacting Gemma 4 about {discovery.name}..."
-                    threading.Thread(target=request_discovery_advice,
-                                     args=(discovery, False, ("discovery", ai_request_id)),
-                                     daemon=True).start()
+                    ask_about_discovery(discovery)
 
             if event.key == pygame.K_f and not upgrade_menu:
                 scan = rover_systems.scan(mission, expedition, rover.center)
@@ -360,7 +383,7 @@ while running:
             if event.key == pygame.K_h and not ai_loading:
                 ai_request_id += 1
                 ai_loading = True
-                ai_message = "Contacting Gemma 4...\n\nAnalyzing mission telemetry."
+                ai_message = "Contacting Gemma 4...\n\nA response can take over a minute."
                 worker = threading.Thread(
                     target=request_ai_advice,
                     args=(mission.battery, mission.collected, rover.centerx, rover.centery,
@@ -676,12 +699,9 @@ while running:
     )
 
     # Copilot status
-    status_color = YELLOW if ai_loading else GREEN
-    status_text = (
-        "AI: ANALYZING..."
-        if ai_loading
-        else "AI: READY"
-    )
+    status_color = YELLOW if ai_loading or ai_failed else GREEN
+    status_text = ("AI: CONNECTING..." if ai_loading else
+                   "AI: OFFLINE - RETRY" if ai_failed else "AI: READY")
 
     status = small_font.render(
         status_text, False, status_color
@@ -735,20 +755,22 @@ while running:
         heading = "DISCOVERY JOURNAL" if journal.is_open else "DISCOVERY INVESTIGATED"
         screen.blit(title_font.render(heading, False, SAMPLE_BLUE), (box.x+22, box.y+16))
         screen.blit(small_font.render(f"Found: {len(journal.found)}/{len(DISCOVERIES)}", False, GREEN), (box.x+22, box.y+52))
+        unlocked = journal_is_unlocked(journal, item)
         blocks = []
         if journal.is_open:
             for index, entry in enumerate(DISCOVERIES):
-                status = "FOUND" if journal.is_found(entry) else "UNDISCOVERED"
+                found = journal_is_unlocked(journal, entry)
+                name = entry.name if found else "Unknown discovery"
+                status = "FOUND" if found else "LOCKED"
                 prefix = "> " if index == journal.selected else "  "
-                blocks.append((f"{prefix}{entry.name}  [{status}]", YELLOW if index == journal.selected else PANEL_GRAY))
-            blocks.append(("", WHITE))
-        blocks.extend([(item.name, SAMPLE_BLUE),
-                       ("Location: " + item.location + ". " + item.description + " " + item.significance, WHITE),
-                       ("", WHITE), ("NASA source: " + item.source_url, PANEL_GRAY)])
+                blocks.append(("text", f"{prefix}{name}  [{status}]", YELLOW if index == journal.selected else PANEL_GRAY))
+            blocks.append(("text", "", WHITE))
+        blocks.extend(gallery_blocks(item, unlocked,
+                      discovery_explanations.get(item.id), discovery_loading_id == item.id))
         focus_name = "journal" if journal.is_open else "discovery"
-        draw_scrolling_text(screen, pygame.Rect(box.x+22, box.y+80, box.width-44, box.height-125),
-                            blocks, small_font, scroll_states[focus_name], 22)
-        hint = "Left / Right: select  |  Up / Down: scroll  |  J / Esc: close" if journal.is_open else "Up / Down: scroll  |  F: ask more  |  E / Esc: close"
+        draw_gallery(screen, pygame.Rect(box.x+22, box.y+80, box.width-44, box.height-125),
+                     blocks, small_font, scroll_states[focus_name], image_cache)
+        hint = "Left/Right: select  Up/Down: scroll  F: AI  O: source  J: close" if journal.is_open else "Up/Down: scroll  F: AI  O: source  E/Esc: close"
         screen.blit(small_font.render(hint, False, SAMPLE_BLUE), (box.x+22, box.bottom-30))
 
     if mission.completed and not upgrade_menu and not journal.is_open and not stats_menu:
