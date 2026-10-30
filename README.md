@@ -18,8 +18,9 @@ To create your own environment in this folder, install Python 3, then run `pytho
 - **Enter** starts or resumes from the title screen; **WASD** drives, with acceleration and steering in the direction of travel.
 - **F** scans nearby samples and sites. The scanner uses battery and has a cooldown; detected targets appear on the minimap. Scan feedback identifies simulated rock types, rarity, and research values.
 - **E** collects a nearby sample or investigates a landmark. If both overlap, E collects the sample first; press E again to investigate. In a discovery panel, **F** asks Gemma for more and **E/Esc** closes it.
-- **J** opens the discovery journal. Use arrow keys to select and **J/Esc** to close. NASA source links and real locations are shown in the journal. AI explanations may be mistaken; refer to the NASA source.
-- **T** sets a waypoint to the nearest scanned sample, or to base when none is scanned. Its minimap line indicates bearing only and is not a validated safe route. **H** requests a mission briefing. Use **Page Up/Page Down** or the mouse wheel over the copilot to scroll responses.
+- **J** opens the discovery journal. Use **Left/Right** to select, **Up/Down** to scroll, and **J/Esc** to close. NASA source links and real locations are shown in the journal. AI explanations may be mistaken; refer to the NASA source.
+- **T** sets a waypoint to the nearest scanned sample, or to base when none is scanned. Its minimap line indicates bearing only and is not a validated safe route. **H** requests a mission briefing. Use **Up/Down** to scroll the currently open panel; holding a key scrolls continuously. **Page Up/Page Down** and the mouse wheel also work. The copilot receives scrolling when no modal panel is open.
+- The compass is north-up: cyan shows rover heading (0° north, 90° east), while amber points toward the selected destination. It points to base when no sample waypoint is selected.
 - **U** opens upgrades at base. **1–5** buy battery, speed, scanner range, scanner efficiency, or repair speed upgrades. **N** launches the next expedition after completion; **R** restarts the current expedition if the battery is depleted.
 - **I** shows statistics and achievements. **Esc** pauses. **V** toggles weather and dust particles; **[ / ]** shortens or lengthens the day cycle in 60-second steps (60–900 seconds).
 
@@ -36,7 +37,7 @@ Progress, upgrades, cargo, discovered sites, map exploration, statistics and ach
 Run the offline tests:
 
 ```bash
-SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m unittest -v test_mission test_discoveries test_expedition test_game_loop
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m unittest -v test_mission test_discoveries test_expedition test_game_loop test_navigation
 ```
 
 The existing `test_ai.py` and `test_copilot.py` contact the live Gemma API, so they require network access, a configured key, and model availability.

@@ -3,6 +3,7 @@ import json
 import math
 import os
 import tempfile
+from navigation import smooth_heading
 
 DAY_SECONDS = 240.0
 SAVE_PATH = os.path.join(os.path.dirname(__file__), 'marsops_save.json')
@@ -47,10 +48,11 @@ class RoverSystems:
         blend = 1-math.exp(-8*dt)
         self.vx += (dx*speed*health_factor*weather_factor-self.vx)*blend
         self.vy += (dy*speed*health_factor*weather_factor-self.vy)*blend
-        if math.hypot(self.vx, self.vy) > 1:
-            target = math.atan2(self.vx, -self.vy)
-            delta = (target-self.angle+math.pi) % (2*math.pi)-math.pi
-            self.angle += delta * min(1, 8*dt)
+    def orient(self, dx, dy, dt):
+        # Align the visible rover and compass to actual travel, including wall slides.
+        if dx or dy:
+            target = math.atan2(dx, -dy)
+            self.angle = smooth_heading(self.angle, target, dt)
 
     def damage_collision(self):
         if self.collision_cooldown <= 0:

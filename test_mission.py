@@ -67,7 +67,7 @@ class MissionTests(unittest.TestCase):
                                                    'Return to Base', 125, 200, False)
         self.assertEqual(answer, 'Return to base.')
         prompt = generate.call_args.kwargs['contents']
-        for detail in ('Objective: Return to Base', 'Battery: 75.0 / 125', 'Research credits: 200'):
+        for detail in ('Current objective: Return to Base', 'Battery: 75.0/125', 'Research credits: 200'):
             self.assertIn(detail, prompt)
 
 

@@ -101,7 +101,7 @@ class ExpeditionTests(unittest.TestCase):
             ai_copilot.get_mission_advice(60, 2, 50, 50, [], required_samples=7)
         text = mock.call_args.kwargs['contents']
         self.assertIn('Samples collected: 2/7', text)
-        self.assertIn('Never claim a route is safe', text)
+        self.assertIn('Do not claim routes are safe unless verified', text)
 
 
 if __name__ == '__main__':

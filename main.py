@@ -11,6 +11,7 @@ from rover_art import build_rover, draw_rover
 from feedback import make_tone, play
 from mission import Mission, MAX_LEVEL, REWARD
 from movement import move_rover
+from ui_navigation import ScrollState, focused_panel, driving_allowed, draw_scrolling_text, draw_compass
 
 from ai_copilot import get_mission_advice, discovery_briefing
 from discoveries import DISCOVERIES, DiscoveryJournal, interaction_choice
@@ -101,7 +102,8 @@ ai_message = (
 
 ai_loading = False
 ai_request_id = 0
-ai_scroll = 0
+scroll_states = {name: ScrollState() for name in ("ai", "journal", "discovery", "upgrades", "stats", "start", "pause")}
+last_ai_message = ai_message
 
 # Thread-safe communication
 ai_results = queue.Queue()
@@ -162,91 +164,9 @@ def request_discovery_advice(discovery, more, snapshot):
     ai_results.put(("discovery", message, snapshot))
 
 
-# ======================================
-# TEXT WRAPPING
-# ======================================
-
-def draw_wrapped_text(
-    surface,
-    message,
-    x,
-    y,
-    max_width,
-    text_font,
-    color,
-    line_height=25,
-    bottom_limit=HEIGHT - 20
-):
-    """
-    Draw text within a fixed width.
-
-    Newlines are preserved, and text is
-    wrapped based on rendered pixel width.
-    """
-
-    for paragraph in message.splitlines():
-
-        if not paragraph.strip():
-            y += line_height
-            continue
-
-        words = paragraph.split()
-        line = ""
-
-        for word in words:
-            candidate = (line + " " + word).strip()
-
-            if text_font.size(candidate)[0] <= max_width:
-                line = candidate
-            else:
-                if line:
-                    if y + line_height > bottom_limit:
-                        return y
-
-                    rendered = text_font.render(
-                        line, False, color
-                    )
-                    surface.blit(rendered, (x, y))
-                    y += line_height
-                    line = ""
-
-                # Split unusually long words
-                while (
-                    word and
-                    text_font.size(word)[0] > max_width
-                ):
-                    cut = len(word)
-
-                    while (
-                        cut > 1 and
-                        text_font.size(word[:cut])[0]
-                        > max_width
-                    ):
-                        cut -= 1
-
-                    if y + line_height > bottom_limit:
-                        return y
-
-                    rendered = text_font.render(
-                        word[:cut], False, color
-                    )
-                    surface.blit(rendered, (x, y))
-                    y += line_height
-                    word = word[cut:]
-
-                line = word
-
-        if line:
-            if y + line_height > bottom_limit:
-                return y
-
-            rendered = text_font.render(
-                line, False, color
-            )
-            surface.blit(rendered, (x, y))
-            y += line_height
-
-    return y
+def current_panel():
+    return focused_panel(started, paused, stats_menu, journal.is_open,
+                         active_discovery is not None, upgrade_menu)
 
 
 # ======================================
@@ -266,7 +186,7 @@ while running:
 
             if snapshot[1] == ai_request_id:
                 ai_loading = False
-                ai_scroll = 0
+                scroll_states["ai"].reset()
                 if snapshot[0] == "discovery" or snapshot[2] == (mission.number, mission.collected, mission.completed):
                     ai_message = result_text
                 else:
@@ -284,16 +204,31 @@ while running:
         if event.type == pygame.QUIT:
             running = False
 
-        if event.type == pygame.MOUSEWHEEL and pygame.mouse.get_pos()[0] >= GAME_WIDTH:
-            ai_scroll = max(0, min(480, ai_scroll - event.y * 48))
+        if event.type == pygame.MOUSEWHEEL:
+            scroll_states[current_panel()].move(-event.y * 48)
 
         if event.type == pygame.KEYDOWN:
             if not started:
                 if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                     started = True
                 continue
-            if event.key == pygame.K_i:
+            if event.key in (pygame.K_UP, pygame.K_DOWN, pygame.K_PAGEUP, pygame.K_PAGEDOWN):
+                amount = {pygame.K_UP: -30, pygame.K_DOWN: 30,
+                          pygame.K_PAGEUP: -160, pygame.K_PAGEDOWN: 160}[event.key]
+                scroll_states[current_panel()].move(amount)
+                continue
+            if paused:
+                if event.key == pygame.K_ESCAPE:
+                    paused = False
+                elif event.key == pygame.K_v:
+                    rover_systems.effects = not rover_systems.effects
+                elif event.key in (pygame.K_LEFTBRACKET, pygame.K_RIGHTBRACKET):
+                    direction = -1 if event.key == pygame.K_LEFTBRACKET else 1
+                    rover_systems.day_seconds = max(60, min(900, rover_systems.day_seconds + direction*60))
+                continue
+            if event.key == pygame.K_i and not (journal.is_open or active_discovery is not None or upgrade_menu):
                 stats_menu = not stats_menu
+                scroll_states["stats"].reset()
                 continue
             if stats_menu:
                 if event.key == pygame.K_ESCAPE:
@@ -306,27 +241,21 @@ while running:
                 direction = -1 if event.key == pygame.K_LEFTBRACKET else 1
                 rover_systems.day_seconds = max(60, min(900, rover_systems.day_seconds + direction*60))
                 scan_message = f"Day cycle: {rover_systems.day_seconds:.0f} seconds"
-            if paused:
-                if event.key == pygame.K_v:
-                    rover_systems.effects = not rover_systems.effects
-                continue
             if event.key == pygame.K_v:
                 rover_systems.effects = not rover_systems.effects
-            if event.key == pygame.K_PAGEUP:
-                ai_scroll = max(0, ai_scroll - 72)
-            elif event.key == pygame.K_PAGEDOWN:
-                ai_scroll = min(480, ai_scroll + 72)
-
             if event.key == pygame.K_j:
                 journal.toggle()
+                scroll_states["journal"].reset()
                 active_discovery = None
                 upgrade_menu = False
                 continue
             if journal.is_open:
-                if event.key in (pygame.K_LEFT, pygame.K_UP):
+                if event.key == pygame.K_LEFT:
                     journal.move(-1)
-                elif event.key in (pygame.K_RIGHT, pygame.K_DOWN):
+                    scroll_states["journal"].reset()
+                elif event.key == pygame.K_RIGHT:
                     journal.move(1)
+                    scroll_states["journal"].reset()
                 elif event.key == pygame.K_ESCAPE:
                     journal.is_open = False
                 continue
@@ -342,11 +271,15 @@ while running:
                                      daemon=True).start()
                 continue
 
+            if event.key == pygame.K_ESCAPE and upgrade_menu:
+                upgrade_menu = False
+                continue
             if event.key == pygame.K_u:
                 if upgrade_menu:
                     upgrade_menu = False
                 elif mission.at_base(rover.center):
                     upgrade_menu = True
+                    scroll_states["upgrades"].reset()
                     menu_notice = ""
                 else:
                     ai_message = "Return to the research base to access upgrades."
@@ -361,6 +294,9 @@ while running:
                     menu_notice = f"{kind.title()} is already at maximum level."
                 else:
                     menu_notice = "Not enough research credits."
+
+            if upgrade_menu and not (event.key == pygame.K_n and mission.completed):
+                continue
 
             if event.key == pygame.K_n and mission.completed:
                 mission.start()
@@ -383,6 +319,8 @@ while running:
                 choice, discovery = interaction_choice(rover, mission.samples, mission.scanner_range, expedition.discoveries)
                 if choice == "sample":
                     found = mission.collect(rover)
+                    if waypoint is not None and all(sample.center != waypoint for sample in mission.samples):
+                        waypoint = None
                     if found:
                         play(ui_tone)
                         point = mission.cargo[-1]
@@ -392,6 +330,7 @@ while running:
                         ai_message = "All samples secured. Return to base to complete the mission."
                 elif choice == "discovery":
                     active_discovery = discovery
+                    scroll_states["discovery"].reset()
                     journal.investigate(discovery)
                     mission.optional_site_done = True
                     ai_request_id += 1
@@ -441,7 +380,8 @@ while running:
     dx = 0.0
     dy = 0.0
 
-    if started and not paused and not stats_menu and mission.battery > 0 and not upgrade_menu and not journal.is_open and active_discovery is None and not mission.completed:
+    if driving_allowed(started, paused, stats_menu, journal.is_open,
+                       active_discovery is not None, upgrade_menu, mission.completed, mission.battery):
 
         if keys[pygame.K_w]:
             dy -= 1
@@ -454,6 +394,10 @@ while running:
 
         if keys[pygame.K_d]:
             dx += 1
+
+    scroll_direction = int(keys[pygame.K_DOWN]) - int(keys[pygame.K_UP])
+    if scroll_direction:
+        scroll_states[current_panel()].move(scroll_direction * 240 * dt)
 
     active = started and not paused and not stats_menu and not upgrade_menu and not journal.is_open and active_discovery is None
     if not active or mission.completed or mission.battery <= 0:
@@ -468,6 +412,7 @@ while running:
         math.hypot(rover_systems.vx, rover_systems.vy), step, obstacles, expedition.size
     )
     distance = math.dist(old_position, rover.center)
+    rover_systems.orient(rover.centerx - old_position[0], rover.centery - old_position[1], step)
     stats["distance"] += distance
     if intended > 1 and distance < intended*.35:
         probe = rover.move(round(rover_systems.vx * step), round(rover_systems.vy * step))
@@ -640,12 +585,10 @@ while running:
         pygame.draw.rect(screen, (28, 34, 37), (10, HEIGHT-38, hint_surface.get_width()+20, 30), border_radius=5)
         screen.blit(hint_surface, (20, HEIGHT-32))
 
-    compass = (GAME_WIDTH - 43, 49)
-    pygame.draw.circle(screen, (28, 34, 37), compass, 30)
-    pygame.draw.circle(screen, PANEL_GRAY, compass, 29, 1)
-    screen.blit(small_font.render("N", False, WHITE), (compass[0]-5, compass[1]-26))
-    tip = (compass[0]+int(16*math.sin(rover_systems.angle)), compass[1]-int(16*math.cos(rover_systems.angle)))
-    pygame.draw.line(screen, SAMPLE_BLUE, compass, tip, 3)
+    destination = waypoint if waypoint is not None else BASE
+    draw_compass(screen, pygame.Rect(GAME_WIDTH - 160, 10, 150, 157),
+                 rover_systems.angle, rover.center, destination,
+                 destination == BASE, small_font)
 
     # Fog-aware minimap: scanned targets are revealed, base and rover stay visible.
     map_x, map_y = GAME_WIDTH - 220, HEIGHT - 170
@@ -665,8 +608,7 @@ while running:
     for discovery in expedition.discoveries:
         if discovery.id in expedition.detected or journal.is_found(discovery):
             pygame.draw.circle(screen, GREEN if journal.is_found(discovery) else YELLOW, map_point(discovery.position), 4, 1)
-    if waypoint:
-        pygame.draw.line(screen, (245, 220, 128), map_point(rover.center), map_point(waypoint), 1)
+    pygame.draw.line(screen, (245, 220, 128), map_point(rover.center), map_point(destination), 1)
     pygame.draw.circle(screen, (255, 242, 150), map_point(rover.center), 4)
     pygame.draw.rect(screen, (225, 205, 181), (map_x, map_y, 200, 150), 1)
 
@@ -746,22 +688,13 @@ while running:
     )
 
     screen.blit(status, (panel_x, 255))
-    screen.blit(small_font.render("PgUp / PgDn: scroll", False, PANEL_GRAY), (panel_x + 125, 255))
+    screen.blit(small_font.render("Up / Down: scroll", False, PANEL_GRAY), (panel_x, 278))
 
-    # Clip the scrollable briefing to its panel so long AI or fallback text remains readable.
-    screen.set_clip(pygame.Rect(panel_x, 292, content_width, HEIGHT - 357))
-    draw_wrapped_text(
-        screen,
-        ai_message,
-        panel_x,
-        295 - ai_scroll,
-        content_width,
-        small_font,
-        WHITE,
-        line_height=24,
-        bottom_limit=HEIGHT - 65
-    )
-    screen.set_clip(None)
+    if ai_message != last_ai_message:
+        scroll_states["ai"].reset()
+        last_ai_message = ai_message
+    draw_scrolling_text(screen, pygame.Rect(panel_x, 304, content_width, HEIGHT-369),
+                        [(ai_message, WHITE)], small_font, scroll_states["ai"], 24)
 
     # Bottom help text
     pygame.draw.line(
@@ -784,11 +717,13 @@ while running:
         labels = (("battery", "+25 capacity"), ("speed", "+30 speed"),
                   ("scanner", "+100 scan range"), ("efficiency", "cheaper / faster scans"),
                   ("repair", "faster base repairs"))
+        upgrade_lines = []
         for index, (kind, effect) in enumerate(labels):
             level = mission.levels[kind]
             cost = "MAX" if level >= MAX_LEVEL else f"{mission.upgrade_cost(kind)} credits"
-            label = f"{index+1}: {kind.title()} {level}/{MAX_LEVEL} - {effect} - {cost}"
-            screen.blit(small_font.render(label, False, WHITE), (box.x+22, box.y+90+index*30))
+            upgrade_lines.append((f"{index+1}: {kind.title()} {level}/{MAX_LEVEL} - {effect} - {cost}", WHITE))
+        draw_scrolling_text(screen, pygame.Rect(box.x+22, box.y+87, box.width-44, 178),
+                            upgrade_lines, small_font, scroll_states["upgrades"], 30)
         screen.blit(small_font.render(menu_notice, False, YELLOW), (box.x+22, box.bottom-64))
         hint = "N: next mission  |  U: close" if mission.completed else "U: close  |  Base repairs and recharges automatically"
         screen.blit(small_font.render(hint, False, SAMPLE_BLUE), (box.x+22, box.bottom-35))
@@ -800,26 +735,20 @@ while running:
         heading = "DISCOVERY JOURNAL" if journal.is_open else "DISCOVERY INVESTIGATED"
         screen.blit(title_font.render(heading, False, SAMPLE_BLUE), (box.x+22, box.y+16))
         screen.blit(small_font.render(f"Found: {len(journal.found)}/{len(DISCOVERIES)}", False, GREEN), (box.x+22, box.y+52))
+        blocks = []
         if journal.is_open:
-            y = box.y + 79
             for index, entry in enumerate(DISCOVERIES):
                 status = "FOUND" if journal.is_found(entry) else "UNDISCOVERED"
                 prefix = "> " if index == journal.selected else "  "
-                screen.blit(small_font.render(f"{prefix}{entry.name}  [{status}]", False, YELLOW if index == journal.selected else PANEL_GRAY), (box.x+22, y))
-                y += 22
-            y += 7
-        else:
-            y = box.y + 86
-        screen.blit(font.render(item.name, False, WHITE), (box.x+22, y))
-        y += 31
-        y = draw_wrapped_text(screen, "Location: " + item.location + ". " + item.description + " " + item.significance,
-                              box.x+22, y, box.width-44, small_font, WHITE,
-                              line_height=21, bottom_limit=box.bottom-82)
-        y += 5
-        draw_wrapped_text(screen, "NASA source: " + item.source_url,
-                          box.x+22, y, box.width-44, small_font, PANEL_GRAY,
-                          line_height=20, bottom_limit=box.bottom-43)
-        hint = "Arrow keys: select  |  J / Esc: close" if journal.is_open else "F: ask for more  |  E / Esc: close  |  J: journal"
+                blocks.append((f"{prefix}{entry.name}  [{status}]", YELLOW if index == journal.selected else PANEL_GRAY))
+            blocks.append(("", WHITE))
+        blocks.extend([(item.name, SAMPLE_BLUE),
+                       ("Location: " + item.location + ". " + item.description + " " + item.significance, WHITE),
+                       ("", WHITE), ("NASA source: " + item.source_url, PANEL_GRAY)])
+        focus_name = "journal" if journal.is_open else "discovery"
+        draw_scrolling_text(screen, pygame.Rect(box.x+22, box.y+80, box.width-44, box.height-125),
+                            blocks, small_font, scroll_states[focus_name], 22)
+        hint = "Left / Right: select  |  Up / Down: scroll  |  J / Esc: close" if journal.is_open else "Up / Down: scroll  |  F: ask more  |  E / Esc: close"
         screen.blit(small_font.render(hint, False, SAMPLE_BLUE), (box.x+22, box.bottom-30))
 
     if mission.completed and not upgrade_menu and not journal.is_open and not stats_menu:
@@ -833,13 +762,15 @@ while running:
         box = pygame.Rect(170, 120, 560, 360)
         pygame.draw.rect(screen, PANEL_BG, box, border_radius=8)
         pygame.draw.rect(screen, SAMPLE_BLUE, box, 2, border_radius=8)
-        lines = ["EXPEDITION RECORD", f"Missions completed: {int(stats['missions'])}",
+        screen.blit(title_font.render("EXPEDITION RECORD", False, SAMPLE_BLUE), (box.x+20, box.y+15))
+        lines = [f"Missions completed: {int(stats['missions'])}",
                  f"Distance traveled: {stats['distance']:.0f}", f"Samples recovered: {int(stats['samples'])}",
                  f"Discoveries investigated: {len(journal.found)}", f"Regions explored: {int(stats['regions'])}",
                  f"Credits earned: {int(stats['credits'])}", f"Upgrades purchased: {int(stats['upgrades'])}",
-                 "Achievements: " + (", ".join(sorted(achievements)) or "none yet"), "I / Esc: close"]
-        for index, line in enumerate(lines):
-            screen.blit(small_font.render(line, False, SAMPLE_BLUE if index in (0, len(lines)-1) else WHITE), (box.x+20, box.y+20+index*30))
+                 "Achievements: " + (", ".join(sorted(achievements)) or "none yet")]
+        draw_scrolling_text(screen, pygame.Rect(box.x+20, box.y+55, box.width-40, box.height-95),
+                            [(line, WHITE) for line in lines], small_font, scroll_states["stats"], 30)
+        screen.blit(small_font.render("Up / Down: scroll  |  I / Esc: close", False, SAMPLE_BLUE), (box.x+20, box.bottom-30))
     if not started or paused:
         shade = pygame.Surface((GAME_WIDTH, HEIGHT), pygame.SRCALPHA)
         shade.fill((9, 15, 24, 205))

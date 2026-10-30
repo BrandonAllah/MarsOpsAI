@@ -64,15 +64,15 @@ class DiscoveryTests(unittest.TestCase):
         prompt = generate.call_args.kwargs['contents']
         self.assertIn(DISCOVERIES[1].description, prompt)
         self.assertIn(DISCOVERIES[1].significance, prompt)
-        self.assertIn('Do not claim life was found', prompt)
-        self.assertIn('different angle', prompt)
+        self.assertIn('Do not claim life on Mars is confirmed', prompt)
+        self.assertIn('another interesting aspect', prompt)
         self.assertEqual(result, 'Potential evidence needs further study.')
 
     def test_ai_failure_uses_nasa_facts(self):
         import ai_copilot
         with patch.object(ai_copilot, 'get_discovery_explanation', side_effect=RuntimeError('offline')):
             text = ai_copilot.discovery_briefing(DISCOVERIES[1])
-        self.assertIn('AI unavailable', text)
+        self.assertIn('Gemma 4 is temporarily unavailable', text)
         self.assertIn(DISCOVERIES[1].description, text)
         self.assertIn(DISCOVERIES[1].significance, text)
 
